@@ -7,7 +7,7 @@ import socket
 from optparse import OptionParser
 
 # global variables and methods
-VERSION = '0.1.2'
+VERSION = '0.1.3'
 
 # class definitions
 class NetemAdjustor:
@@ -227,7 +227,7 @@ def main():
     parser.add_option("-b", "--bandwidth", action="store", dest="bandwidth_mbit", default="0",
                       help="Bandwidth(MBit)")
     parser.add_option("-e", "--excepts", action="store", dest="except_list", default="",
-                      help="Exception list")
+                      help="Exception list (separated by comma")
 
     (options, args) = parser.parse_args()
 
