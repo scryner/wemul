@@ -2,11 +2,12 @@ import sys
 import time
 import select
 import os
+import socket
 
 from optparse import OptionParser
 
 # global variables and methods
-VERSION = '0.1'
+VERSION = '0.1.1'
 
 # class definitions
 class NetemAdjustor:
@@ -202,11 +203,24 @@ class NetemAdjustor:
         print('ADJUSTING SUCCESS: %s(delay: %dms / bandwidth: %dMbit / loss_rate: %s%%)' % (host, delay_ms, bandwidth_mbit, loss_rate_str))
 
 
+def get_local_ip_addr():
+    ipaddr = ''
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(('naver.com', 80))
+        ipaddr = s.getsockname()[0]
+        s.close()
+    except:
+        pass
+
+    return ipaddr
+
+
 def main():
     parser = OptionParser(usage="usage: %prog [options]", version="%prog 0.1")
     parser.add_option("-r", "--reset", action="store_true", dest="reset_flag", default=False,
                       help="Reset to original states")
-    parser.add_option("-i", "--interface", action="store", dest="host", default="eth0",
+    parser.add_option("-i", "--interface", action="store", dest="device", default='',
                       help="Interface name")
     parser.add_option("-d", "--delay", action="store", dest="delay_ms", default="0",
                       help="Delay(ms)")
@@ -217,8 +231,11 @@ def main():
 
     (options, args) = parser.parse_args()
 
-    print options
-    print args
+    # parsing options
+    device = options['device']
+    delay_ms = int(options['delay_ms'])
+    bandwidth_mbit = int(options['bandwidth_mbit'])
+    loss_rate_str = ''
 
     adjustor = NetemAdjustor(device)
     adjustor.reset()
@@ -233,11 +250,10 @@ def main():
         for tok in tokens:
             new_except_list.append(tok)
 
-    host = options['host']
-    delay_ms = int(options['delay_ms'])
-    bandwidth_mbit = int(options['bandwidth_mbit'])
-    loss_rate_str = ''
+    # getting local ip
+    host = get_local_ip_addr()
 
+    # adjusting
     adjustor.adjust(host, delay_ms, bandwidth_mbit, loss_rate_str, new_except_list)
     print("FINISHED")
 
