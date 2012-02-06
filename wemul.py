@@ -7,7 +7,7 @@ import socket
 from optparse import OptionParser
 
 # global variables and methods
-VERSION = '0.1.1'
+VERSION = '0.1.2'
 
 # class definitions
 class NetemAdjustor:
@@ -18,7 +18,7 @@ class NetemAdjustor:
         self.nClass = 0
 
     def reset(self):
-        self.logger.info('RESET')
+        print('RESET')
         comm = 'tc qdisc del dev %s root handle 1:' % self.dst_dev
 
         print('comm: %s' % comm)
@@ -220,7 +220,7 @@ def main():
     parser = OptionParser(usage="usage: %prog [options]", version="%prog 0.1")
     parser.add_option("-r", "--reset", action="store_true", dest="reset_flag", default=False,
                       help="Reset to original states")
-    parser.add_option("-i", "--interface", action="store", dest="device", default='',
+    parser.add_option("-i", "--interface", action="store", dest="device", default='eth0',
                       help="Interface name")
     parser.add_option("-d", "--delay", action="store", dest="delay_ms", default="0",
                       help="Delay(ms)")
@@ -232,20 +232,20 @@ def main():
     (options, args) = parser.parse_args()
 
     # parsing options
-    device = options['device']
-    delay_ms = int(options['delay_ms'])
-    bandwidth_mbit = int(options['bandwidth_mbit'])
+    device = options.device
+    delay_ms = int(options.delay_ms)
+    bandwidth_mbit = int(options.bandwidth_mbit)
     loss_rate_str = ''
 
     adjustor = NetemAdjustor(device)
     adjustor.reset()
 
-    if options['reset_flag'] is True:
+    if options.reset_flag is True:
         sys.exit(0)
 
     new_except_list = []
-    if except_list is not '':
-        tokens = except_list.split(',')
+    if options.except_list is not '':
+        tokens = options.except_list.split(',')
 
         for tok in tokens:
             new_except_list.append(tok)
