@@ -220,7 +220,7 @@ def main():
     print options
     print args
 
-	adjustor = NetemAdjustor(device)
+    adjustor = NetemAdjustor(device)
     adjustor.reset()
 
     if options['reset_flag'] is True:
