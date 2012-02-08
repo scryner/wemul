@@ -7,7 +7,7 @@ import socket
 from optparse import OptionParser
 
 # global variables and methods
-VERSION = '0.1.3'
+VERSION = '0.1.4'
 
 # class definitions
 class NetemAdjustor:
@@ -189,7 +189,7 @@ class NetemAdjustor:
             netem_opt += ' loss %s%%' % loss_rate_str
 
         if netem_opt != '':
-            comm4 = 'tc qdisc add dev eth1 parent %s handle %d netem %s' % (class_id, self.nClass + 10, netem_opt)
+            comm4 = 'tc qdisc add dev %s parent %s handle %d netem %s' % (self.dst_dev, class_id, self.nClass + 10, netem_opt)
 
             print('comm: %s' % comm4)
 
