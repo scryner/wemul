@@ -54,6 +54,8 @@ class NetemAdjustor:
         # parsing exception list
         except_list = []
         max_bw = bandwidth_mbit
+        if max_bw == 0:
+            max_bw = 1000
 
         for unparsed_ex in unparsed_except_list:
             print('except: %s' % unparsed_ex)
@@ -79,7 +81,7 @@ class NetemAdjustor:
                 ex['bw'] = 1000
 
             if ex['bw'] == 0:
-                ex['bw'] == 1000
+                ex['bw'] = 1000
 
             if ex['bw'] > max_bw:
                 max_bw = ex['bw']
