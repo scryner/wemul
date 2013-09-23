@@ -7,7 +7,8 @@ import socket
 from optparse import OptionParser
 
 # global variables and methods
-VERSION = '0.1.4'
+VERSION = '0.1.5'
+JUSTPRINT = False
 
 # class definitions
 class NetemAdjustor:
@@ -21,9 +22,7 @@ class NetemAdjustor:
         print('RESET')
         comm = 'tc qdisc del dev %s root handle 1:' % self.dst_dev
 
-        print('comm: %s' % comm)
-
-        ret = os.system(comm)
+        ret = execute(comm)
 
         if ret is not 0:
             print('RESET FAIL')
@@ -47,6 +46,9 @@ class NetemAdjustor:
             return '1:1'
 
     def adjust(self, host, delay_ms, bandwidth_mbit, loss_rate_str, unparsed_except_list):
+        if loss_rate_str is "":
+            loss_rate_str = "0"
+
         print('ADJUSTING: %s(delay: %dms / bandwidth: %dMbit / loss_rate: %s%%)' % (host, delay_ms, bandwidth_mbit, loss_rate_str))
 
         # parsing exception list
@@ -56,7 +58,7 @@ class NetemAdjustor:
         for unparsed_ex in unparsed_except_list:
             print('except: %s' % unparsed_ex)
 
-            tokens = unparsed_ex.split('|')
+            tokens = unparsed_ex.split('_')
 
             ex = {}
 
@@ -97,9 +99,8 @@ class NetemAdjustor:
             r2q_val = int(r2q_val)
 
             comm0 = 'tc qdisc add dev %s handle 1: root htb r2q %d' % (self.dst_dev, r2q_val)
-            print('comm: %s' % comm0)
 
-            ret = os.system(comm0)
+            ret = execute(comm0)
 
             if ret is not 0:
                 print('ADJUSTING FAIL: adding tc root')
@@ -108,39 +109,48 @@ class NetemAdjustor:
             else:
                 self.haveRoot = True
 
-            # adding cdn filter which doesn't need delay
+            # adding exception filter which doesn't need delay
             for ex in except_list:
                 class_id = self._getClassId()
 
                 comm = 'tc class add dev %s parent 1: classid %s htb rate %dMbit' % (self.dst_dev, class_id, ex['bw'])
-                print('comm: %s' % comm)
 
-                ret = os.system(comm)
+                ret = execute(comm)
 
                 if ret is not 0:
                     print('ADJUSTING FAIL: adding tc class for exception')
                     print('failed comm: %s' % comm)
                     return
 
-                comm = 'tc filter add dev %s parent 1: protocol ip prio 1 u32 match ip src %s flowid %s' % (self.dst_dev, ex['addr'], class_id)
-                print('comm: %s' % comm)
+                comm = 'tc filter add dev %s parent 1: protocol ip prio 1 u32 match ip src %s/32 match ip dst %s/32 flowid %s' % (self.dst_dev, ex['addr'], host, class_id)
 
-                ret = os.system(comm)
+                ret = execute(comm)
+
+                if ret is not 0:
+                    print('ADJUSTING FAIL: adding tc src filter for exception')
+                    print('failed comm: %s' % comm)
+                    continue
+
+                comm = 'tc filter add dev %s parent 1: protocol ip prio 1 u32 match ip dst %s/32 match ip src %s/32 flowid %s' % (self.dst_dev, ex['addr'], host, class_id)
+
+                ret = execute(comm)
 
                 if ret is not 0:
                     print('ADJUSTING FAIL: adding tc src filter for exception')
                     print('failed comm: %s' % comm)
                     continue
 
-                comm = 'tc filter add dev %s parent 1: protocol ip prio 1 u32 match ip dst %s flowid %s' % (self.dst_dev, ex['addr'], class_id)
-                print('comm: %s' % comm)
+                netem_opt = get_netem_opt(ex['delay'], ex['loss_str'])
 
-                ret = os.system(comm)
+                if netem_opt != '':
+                    comm = 'tc qdisc add dev %s parent %s handle %d netem %s' % (self.dst_dev, class_id, self.nClass + 10, netem_opt)
 
-                if ret is not 0:
-                    print('ADJUSTING FAIL: adding tc src filter for exception')
-                    print('failed comm: %s' % comm)
-                    continue
+                    ret = execute(comm)
+
+                    if ret is not 0:
+                        print('ADJUSTING FAIL: adding tc netem for exception')
+                        print('failed comm: %s' % comm)
+                        continue
 
         # adding class
         class_id = self._getClassId()
@@ -150,8 +160,7 @@ class NetemAdjustor:
         else:
             comm1 = 'tc class add dev %s parent 1: classid %s htb rate %dMbit ceil %dMbit' % (self.dst_dev, class_id, bandwidth_mbit, bandwidth_mbit)
 
-        print('comm: %s' % comm1)
-        ret = os.system(comm1)
+        ret = execute(comm1)
 
         if ret is not 0:
             print('ADJUSTING FAIL: adding tc class')
@@ -161,8 +170,7 @@ class NetemAdjustor:
         # adding filter
         comm2 = 'tc filter add dev %s parent 1: protocol ip prio 1 u32 match ip src %s/32 flowid %s' % (self.dst_dev, host, class_id)
 
-        print('comm: %s' % comm2)
-        ret = os.system(comm2)
+        ret = execute(comm2)
 
         if ret is not 0:
             print('ADJUSTING FAIL: adding tc filter to %s(src)' % host)
@@ -171,8 +179,7 @@ class NetemAdjustor:
 
         comm3 = 'tc filter add dev %s parent 1: protocol ip prio 1 u32 match ip dst %s/32 flowid %s' % (self.dst_dev, host, class_id)
 
-        print('comm: %s' % comm3)
-        ret = os.system(comm3)
+        ret = execute(comm3)
 
         if ret is not 0:
             print('ADJUSTING FAIL: adding tc filter to %s(dst)' % host)
@@ -180,20 +187,12 @@ class NetemAdjustor:
             return
 
         # adding netem
-        netem_opt = ''
-
-        if delay_ms is not 0:
-            netem_opt += 'delay %dms' % delay_ms
-
-        if loss_rate_str is not '' and loss_rate_str is not '0':
-            netem_opt += ' loss %s%%' % loss_rate_str
+        netem_opt = get_netem_opt(delay_ms, loss_rate_str)
 
         if netem_opt != '':
             comm4 = 'tc qdisc add dev %s parent %s handle %d netem %s' % (self.dst_dev, class_id, self.nClass + 10, netem_opt)
 
-            print('comm: %s' % comm4)
-
-            ret = os.system(comm4)
+            ret = execute(comm4)
 
             if ret is not 0:
                 print('ADJUSTING FAIL: adding tc netem')
@@ -207,7 +206,7 @@ def get_local_ip_addr():
     ipaddr = ''
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(('naver.com', 80))
+        s.connect(('google.com', 80))
         ipaddr = s.getsockname()[0]
         s.close()
     except:
@@ -216,8 +215,30 @@ def get_local_ip_addr():
     return ipaddr
 
 
+def get_netem_opt(delay_ms, loss_rate_str):
+    netem_opt = ''
+
+    if delay_ms is not 0:
+        netem_opt += 'delay %dms' % delay_ms
+
+    if loss_rate_str is not '' and loss_rate_str is not '0':
+        netem_opt += ' loss %s%%' % loss_rate_str
+
+    return netem_opt
+
+
+def execute(comm):
+    print('comm: %s' % comm)
+
+
+    if JUSTPRINT:
+        return 0
+
+    return os.system(comm)
+
+
 def main():
-    parser = OptionParser(usage="usage: %prog [options]", version="%prog 0.1")
+    parser = OptionParser(usage="usage: %prog [options]", version="%prog " + VERSION)
     parser.add_option("-r", "--reset", action="store_true", dest="reset_flag", default=False,
                       help="Reset to original states")
     parser.add_option("-i", "--interface", action="store", dest="device", default='eth0',
@@ -227,8 +248,12 @@ def main():
     parser.add_option("-b", "--bandwidth", action="store", dest="bandwidth_mbit", default="0",
                       help="Bandwidth(MBit)")
     parser.add_option("-e", "--excepts", action="store", dest="except_list", default="",
-                      help="Exception list (separated by comma")
-
+                      help="Exception list (separated by comma)")
+    parser.add_option("-n", "--just-print", action="store_true", dest="just_print", default=False,
+                      help="Print the commands that would be executed, but do not excute them")
+    parser.add_option("-t", "--target", action="store", dest="target", default="",
+                      help="Target address (default: local ip to internet)")
+    
     (options, args) = parser.parse_args()
 
     # parsing options
@@ -236,6 +261,10 @@ def main():
     delay_ms = int(options.delay_ms)
     bandwidth_mbit = int(options.bandwidth_mbit)
     loss_rate_str = ''
+    target = options.target
+
+    global JUSTPRINT
+    JUSTPRINT = options.just_print
 
     adjustor = NetemAdjustor(device)
     adjustor.reset()
@@ -251,10 +280,11 @@ def main():
             new_except_list.append(tok)
 
     # getting local ip
-    host = get_local_ip_addr()
+    if target is "":
+        target = get_local_ip_addr()
 
     # adjusting
-    adjustor.adjust(host, delay_ms, bandwidth_mbit, loss_rate_str, new_except_list)
+    adjustor.adjust(target, delay_ms, bandwidth_mbit, loss_rate_str, new_except_list)
     print("FINISHED")
 
 if __name__ == '__main__':
