@@ -38,6 +38,15 @@ class NetemAdjustor:
         self.haveRoot = False
         self.nClass = 0
 
+        # flush iptables
+        comm = 'iptables -t mangle --flush'
+
+        ret = execute(comm)
+
+        if ret is not 0:
+            print('failed comm: %s' % comm)
+            raise Exception('RESET FAIL')
+
 
     def _getClassId(self):
         if self.haveRoot:
@@ -223,7 +232,7 @@ class NetemAdjustor:
         else:
             routing = 'POSTROUTING'
 
-        comm = 'iptables -t mangle -A %s --source %s -j MARK --set-mark %s' % (routing, host, class_id)
+        comm = 'iptables -t mangle -A %s --source %s -j MARK --set-mark %s' % (routing, host, self.nClass)
 
         ret = execute(comm)
 
