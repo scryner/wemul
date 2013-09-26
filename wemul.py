@@ -170,7 +170,7 @@ class NetemAdjustor:
                 netem_opt = get_netem_opt(ex['delay'], ex['loss_str'])
 
                 if netem_opt != '':
-                    comm = 'tc qdisc add dev %s parent %s handle %d netem %s' % (self.dst_dev, class_id, self.nClass + 10, netem_opt)
+                    comm = 'tc qdisc add dev %s parent %s handle %d netem %s' % (self.dst_dev, class_id, self.nClass, netem_opt)
 
                     ret = execute(comm)
 
@@ -218,7 +218,7 @@ class NetemAdjustor:
         netem_opt = get_netem_opt(delay_ms, loss_rate_str)
 
         if netem_opt != '':
-            comm3 = 'tc qdisc add dev %s parent %s handle %d netem %s' % (self.dst_dev, class_id, self.nClass + 10, netem_opt)
+            comm3 = 'tc qdisc add dev %s parent %s handle %d netem %s' % (self.dst_dev, class_id, self.nClass, netem_opt)
 
             ret = execute(comm3)
 
