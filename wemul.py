@@ -7,7 +7,7 @@ import socket
 from optparse import OptionParser
 
 # global variables and methods
-VERSION = '0.1.5'
+VERSION = '0.2.0'
 JUSTPRINT = False
 
 # class definitions
@@ -18,6 +18,7 @@ class NetemAdjustor:
         self.haveRoot = False
         self.nClass = 0
 
+
     def reset(self):
         print('RESET')
         comm = 'tc qdisc del dev %s root handle 1:' % self.dst_dev
@@ -25,17 +26,18 @@ class NetemAdjustor:
         ret = execute(comm)
 
         if ret is not 0:
-            print('RESET FAIL')
             print('failed comm: %s' % comm)
 
             self.haveRoot = False
             self.nClass = 0
-            return
+
+            raise Exception('RESET FAIL')
         else:
             print('RESET SUCCESS')
 
         self.haveRoot = False
         self.nClass = 0
+
 
     def _getClassId(self):
         if self.haveRoot:
@@ -45,15 +47,24 @@ class NetemAdjustor:
             self.nClass = 1
             return '1:1'
 
-    def adjust(self, host, delay_ms, bandwidth_mbit, loss_rate_str, unparsed_except_list):
+
+    def adjust(self, host, up_delay_ms, down_delay_ms, up_bandwidth_mbit, down_bandwidth_mbit, loss_rate_str, unparsed_except_list):
         if loss_rate_str is "":
             loss_rate_str = "0"
 
-        print('ADJUSTING: %s(delay: %dms / bandwidth: %dMbit / loss_rate: %s%%)' % (host, delay_ms, bandwidth_mbit, loss_rate_str))
+        print('ADJUSTING HOST: %s' % host)
+        print('ADJUSTING UP: delay: %dms / bandwidth: %dMbit' % (up_delay_ms, up_bandwidth_mbit))
+        print('ADJUSTING DOWN: delay: %dms / bandwidth: %dMbit' % (down_delay_ms, down_bandwidth_mbit))
+        print('ADJUSTING LOSS: %s%%' % loss_rate_str)
 
         # parsing exception list
         except_list = []
-        max_bw = bandwidth_mbit
+
+        if up_bandwidth_mbit > down_bandwidth_mbit:
+            max_bw = up_bandwidth_mbit
+        else:
+            max_bw = down_bandwidth_mbit
+
         if max_bw == 0:
             max_bw = 1000
 
@@ -154,7 +165,14 @@ class NetemAdjustor:
                         print('failed comm: %s' % comm)
                         continue
 
-        # adding class
+        # adding class for upstream
+        self._adjust('ip src', host, up_delay_ms, up_bandwidth_mbit, loss_rate_str)
+        self._adjust('ip dst', host, down_delay_ms, down_bandwidth_mbit, loss_rate_str)
+
+        print('ADJUSTING SUCCESS')
+
+
+    def _adjust(self, match, host, delay_ms, bandwidth_mbit, loss_rate_str):
         class_id = self._getClassId()
 
         if bandwidth_mbit == 0:
@@ -165,43 +183,38 @@ class NetemAdjustor:
         ret = execute(comm1)
 
         if ret is not 0:
-            print('ADJUSTING FAIL: adding tc class')
             print('failed comm: %s' % comm1)
-            return
+            raise Exception('ADJUSTING FAIL: adding tc class')
 
         # adding filter
-        comm2 = 'tc filter add dev %s parent 1: protocol ip prio 1 u32 match ip src %s/32 flowid %s' % (self.dst_dev, host, class_id)
+        comm2 = 'tc filter add dev %s parent 1: protocol ip prio 1 u32 match %s %s/32 flowid %s' % (self.dst_dev, match, host, class_id)
 
         ret = execute(comm2)
 
         if ret is not 0:
-            print('ADJUSTING FAIL: adding tc filter to %s(src)' % host)
             print('failed comm: %s' % comm2)
-            return
-
-        comm3 = 'tc filter add dev %s parent 1: protocol ip prio 1 u32 match ip dst %s/32 flowid %s' % (self.dst_dev, host, class_id)
-
-        ret = execute(comm3)
-
-        if ret is not 0:
-            print('ADJUSTING FAIL: adding tc filter to %s(dst)' % host)
-            print('failed comm: %s' % comm3)
-            return
+            raise Exception('ADJUSTING FAIL: adding tc filter to match %s' % match)
 
         # adding netem
         netem_opt = get_netem_opt(delay_ms, loss_rate_str)
 
         if netem_opt != '':
-            comm4 = 'tc qdisc add dev %s parent %s handle %d netem %s' % (self.dst_dev, class_id, self.nClass + 10, netem_opt)
+            comm3 = 'tc qdisc add dev %s parent %s handle %d netem %s' % (self.dst_dev, class_id, self.nClass + 10, netem_opt)
 
-            ret = execute(comm4)
+            ret = execute(comm3)
 
             if ret is not 0:
-                print('ADJUSTING FAIL: adding tc netem')
-                print('failed comm: %s' % comm4)
-                return
+                print('failed comm: %s' % comm3)
+                raise Exception('ADJUSTING FAIL: adding tc netem')
 
-        print('ADJUSTING SUCCESS: %s(delay: %dms / bandwidth: %dMbit / loss_rate: %s%%)' % (host, delay_ms, bandwidth_mbit, loss_rate_str))
+        # adjusting route table to mangle
+        comm = 'iptables -t mangle -A PREROUTING --source %s -j MARK --set-mark %s' % (host, class_id)
+
+        ret = execute(comm)
+
+        if ret is not 0:
+            print('failed comm: %s' % comm)
+            raise Exception('ADJUSTING FAIL: mangling to routing table')
 
 
 def get_local_ip_addr():
@@ -239,6 +252,29 @@ def execute(comm):
     return os.system(comm)
 
 
+def parse_updown(updown, halfIfEqual):
+    tokens = updown.split(',')
+
+    up = 0
+    down = 0
+
+    try:
+        if len(tokens) is 2:
+            up = int(tokens[0])
+            down = int(tokens[1])
+        else:
+            up = int(tokens[0])
+            if halfIfEqual:
+                down = up / 2
+                up = down
+            else:
+                down = up
+    except:
+        pass
+
+    return up, down
+
+
 def main():
     parser = OptionParser(usage="usage: %prog [options]", version="%prog " + VERSION)
     parser.add_option("-r", "--reset", action="store_true", dest="reset_flag", default=False,
@@ -260,8 +296,8 @@ def main():
 
     # parsing options
     device = options.device
-    delay_ms = int(options.delay_ms)
-    bandwidth_mbit = int(options.bandwidth_mbit)
+    up_delay_ms, down_delay_ms = parse_updown(options.delay_ms, True)
+    up_bandwidth_mbit, down_bandwidth_mbit = parse_updown(options.bandwidth_mbit, False)
     loss_rate_str = ''
     target = options.target
 
@@ -286,8 +322,13 @@ def main():
         target = get_local_ip_addr()
 
     # adjusting
-    adjustor.adjust(target, delay_ms, bandwidth_mbit, loss_rate_str, new_except_list)
-    print("FINISHED")
+    try:
+        adjustor.adjust(target, up_delay_ms, down_delay_ms, up_bandwidth_mbit, down_bandwidth_mbit, loss_rate_str, new_except_list)
+        print("FINISHED")
+    except Exception as ex:
+        print('Failed to adjust: %s' % ex)
+        adjustor.reset()
+
 
 if __name__ == '__main__':
 	main()
