@@ -192,7 +192,7 @@ class NetemAdjustor:
         if bandwidth_mbit == 0:
             comm1 = 'tc class add dev %s parent 1: classid %s htb rate 1000Mbit' % (self.dst_dev, class_id)
         else:
-            comm1 = 'tc class add dev %s parent 1: classid %s htb rate %dMbit ceil %dMbit' % (self.dst_dev, class_id, bandwidth_mbit, bandwidth_mbit)
+            comm1 = 'tc class add dev %s parent 1: classid %s htb rate %dMbit ceil %dMbit burst' % (self.dst_dev, class_id, bandwidth_mbit, bandwidth_mbit)
 
         ret = execute(comm1)
 
@@ -206,8 +206,8 @@ class NetemAdjustor:
         else:
             match = 'ip dst'
 
-        comm2 = 'tc filter add dev %s parent 1: protocol ip prio 1 u32 match %s %s/32 flowid %s' % (self.dst_dev, match, host, class_id)
 
+        comm2 = 'tc filter add dev %s parent 1: protocol ip prio 1 u32 match %s %s/32 fw classid %s' % (self.dst_dev, match, host, class_id)
         ret = execute(comm2)
 
         if ret is not 0:
