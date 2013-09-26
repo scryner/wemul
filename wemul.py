@@ -310,7 +310,10 @@ def main():
     JUSTPRINT = options.just_print
 
     adjustor = NetemAdjustor(device)
-    adjustor.reset()
+    try:
+        adjustor.reset()
+    except:
+        pass
 
     if options.reset_flag is True:
         sys.exit(0)
