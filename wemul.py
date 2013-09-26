@@ -171,13 +171,13 @@ class NetemAdjustor:
                         continue
 
         # adding class for upstream
-        self._adjust('ip src', host, up_delay_ms, up_bandwidth_mbit, loss_rate_str)
-        self._adjust('ip dst', host, down_delay_ms, down_bandwidth_mbit, loss_rate_str)
+        self._adjust(host, True, up_delay_ms, up_bandwidth_mbit, loss_rate_str)
+        self._adjust(host, False, down_delay_ms, down_bandwidth_mbit, loss_rate_str)
 
         print('ADJUSTING SUCCESS')
 
 
-    def _adjust(self, match, host, delay_ms, bandwidth_mbit, loss_rate_str):
+    def _adjust(self, host, isUpstream, delay_ms, bandwidth_mbit, loss_rate_str):
         class_id = self._getClassId()
 
         if bandwidth_mbit == 0:
@@ -192,6 +192,11 @@ class NetemAdjustor:
             raise Exception('ADJUSTING FAIL: adding tc class')
 
         # adding filter
+        if isUpstream:
+            match = 'ip src'
+        else:
+            match = 'ip dst'
+
         comm2 = 'tc filter add dev %s parent 1: protocol ip prio 1 u32 match %s %s/32 flowid %s' % (self.dst_dev, match, host, class_id)
 
         ret = execute(comm2)
@@ -213,7 +218,12 @@ class NetemAdjustor:
                 raise Exception('ADJUSTING FAIL: adding tc netem')
 
         # adjusting route table to mangle
-        comm = 'iptables -t mangle -A PREROUTING --source %s -j MARK --set-mark %s' % (host, class_id)
+        if isUpstream:
+            routing = 'PREROUTING'
+        else:
+            routing = 'POSTROUTING'
+
+        comm = 'iptables -t mangle -A %s --source %s -j MARK --set-mark %s' % (routing, host, class_id)
 
         ret = execute(comm)
 
