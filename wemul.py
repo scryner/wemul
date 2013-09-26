@@ -12,8 +12,9 @@ JUSTPRINT = False
 
 # class definitions
 class NetemAdjustor:
-    def __init__(self, dst_dev):
+    def __init__(self, dst_dev, dst_dev_up):
         self.dst_dev = dst_dev
+        self.dst_dev_up = dst_dev_up
 
         self.haveRoot = False
         self.nClass = 0
@@ -180,19 +181,21 @@ class NetemAdjustor:
                         continue
 
         # adding class for upstream
-        self._adjust(host, True, up_delay_ms, up_bandwidth_mbit, loss_rate_str)
-        self._adjust(host, False, down_delay_ms, down_bandwidth_mbit, loss_rate_str)
+        self._adjust(self.dst_dev, host, False, down_delay_ms, down_bandwidth_mbit, loss_rate_str)
+
+        if self.dst_dev_up != '':
+            self._adjust(self.dst_dev_up, host, True, up_delay_ms, up_bandwidth_mbit, loss_rate_str)
 
         print('ADJUSTING SUCCESS')
 
 
-    def _adjust(self, host, isUpstream, delay_ms, bandwidth_mbit, loss_rate_str):
+    def _adjust(self, dev, host, isUpstream, delay_ms, bandwidth_mbit, loss_rate_str):
         class_id = self._getClassId()
 
         if bandwidth_mbit == 0:
-            comm1 = 'tc class add dev %s parent 1: classid %s htb rate 1000Mbit' % (self.dst_dev, class_id)
+            comm1 = 'tc class add dev %s parent 1: classid %s htb rate 1000Mbit' % (dev, class_id)
         else:
-            comm1 = 'tc class add dev %s parent 1: classid %s htb rate %dMbit ceil %dMbit burst 15k' % (self.dst_dev, class_id, bandwidth_mbit, bandwidth_mbit)
+            comm1 = 'tc class add dev %s parent 1: classid %s htb rate %dMbit ceil %dMbit burst 15k' % (dev, class_id, bandwidth_mbit, bandwidth_mbit)
 
         ret = execute(comm1)
 
@@ -206,7 +209,7 @@ class NetemAdjustor:
         else:
             match = 'ip dst'
 
-        comm2 = 'tc filter add dev %s parent 1: protocol ip prio 1 u32 match %s %s/32 flowid %s' % (self.dst_dev, match, host, class_id)
+        comm2 = 'tc filter add dev %s parent 1: protocol ip prio 1 u32 match %s %s/32 flowid %s' % (dev, match, host, class_id)
 
         ret = execute(comm2)
 
@@ -218,7 +221,7 @@ class NetemAdjustor:
         netem_opt = get_netem_opt(delay_ms, loss_rate_str)
 
         if netem_opt != '':
-            comm3 = 'tc qdisc add dev %s parent %s handle %d netem %s' % (self.dst_dev, class_id, self.nClass, netem_opt)
+            comm3 = 'tc qdisc add dev %s parent %s handle %d netem %s' % (dev, class_id, self.nClass, netem_opt)
 
             ret = execute(comm3)
 
@@ -274,7 +277,7 @@ def execute(comm):
     return os.system(comm)
 
 
-def parse_updown(updown, halfIfEqual):
+def parse_updown(updown, halfIfEqual, dstDev=''):
     tokens = updown.split(',')
 
     up = 0
@@ -284,9 +287,12 @@ def parse_updown(updown, halfIfEqual):
         if len(tokens) is 2:
             up = int(tokens[0])
             down = int(tokens[1])
+            if dstDev == '':
+                up = up + down
+                down = up
         else:
             up = int(tokens[0])
-            if halfIfEqual:
+            if halfIfEqual and dstDev != '':
                 down = up / 2
                 up = down
             else:
@@ -303,6 +309,8 @@ def main():
                       help="Reset to original states")
     parser.add_option("-i", "--interface", action="store", dest="device", default='eth0',
                       help="Interface name")
+    parser.add_option("-u", "--up-interface", action="store", dest="device_up", default='',
+                      help="Interface name (upsteam)")
     parser.add_option("-d", "--delay", action="store", dest="delay_ms", default="0",
                       help="Delay(ms)")
     parser.add_option("-b", "--bandwidth", action="store", dest="bandwidth_mbit", default="0",
@@ -318,7 +326,8 @@ def main():
 
     # parsing options
     device = options.device
-    up_delay_ms, down_delay_ms = parse_updown(options.delay_ms, True)
+    device_up = options.device_up
+    up_delay_ms, down_delay_ms = parse_updown(options.delay_ms, True, device_up)
     up_bandwidth_mbit, down_bandwidth_mbit = parse_updown(options.bandwidth_mbit, False)
     loss_rate_str = ''
     target = options.target
@@ -326,7 +335,7 @@ def main():
     global JUSTPRINT
     JUSTPRINT = options.just_print
 
-    adjustor = NetemAdjustor(device)
+    adjustor = NetemAdjustor(device, device_up)
     try:
         adjustor.reset()
     except:
