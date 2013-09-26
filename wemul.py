@@ -230,7 +230,7 @@ class NetemAdjustor:
         if isUpstream:
             comm = 'iptables -t mangle -A PREROUTING --source %s -j MARK --set-mark %s' % (host, self.nClass)
         else:
-            comm = 'iptables -t mangle -A POSTROUTING --source %s -j ACCEPT' % (host, self.nClass)
+            comm = 'iptables -t mangle -A POSTROUTING --destination %s -j ACCEPT' % (host, self.nClass)
 
         ret = execute(comm)
 
