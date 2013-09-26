@@ -76,7 +76,12 @@ class NetemAdjustor:
             ex = {}
 
             try:
-                ex['addr'] = tokens[0]
+                addr = tokens[0]
+
+                if addr.find('/') < 0:
+                    addr = '%s/32' % addr 
+
+                ex['addr'] = addr
             except:
                 print('failed to parse to exception token: %s' % unparsed_ex)
                 continue
@@ -135,7 +140,7 @@ class NetemAdjustor:
                     print('failed comm: %s' % comm)
                     return
 
-                comm = 'tc filter add dev %s parent 1: protocol ip prio 1 u32 match ip src %s/32 match ip dst %s/32 flowid %s' % (self.dst_dev, ex['addr'], host, class_id)
+                comm = 'tc filter add dev %s parent 1: protocol ip prio 1 u32 match ip src %s match ip dst %s/32 flowid %s' % (self.dst_dev, ex['addr'], host, class_id)
 
                 ret = execute(comm)
 
@@ -144,7 +149,7 @@ class NetemAdjustor:
                     print('failed comm: %s' % comm)
                     continue
 
-                comm = 'tc filter add dev %s parent 1: protocol ip prio 1 u32 match ip dst %s/32 match ip src %s/32 flowid %s' % (self.dst_dev, ex['addr'], host, class_id)
+                comm = 'tc filter add dev %s parent 1: protocol ip prio 1 u32 match ip dst %s match ip src %s/32 flowid %s' % (self.dst_dev, ex['addr'], host, class_id)
 
                 ret = execute(comm)
 
